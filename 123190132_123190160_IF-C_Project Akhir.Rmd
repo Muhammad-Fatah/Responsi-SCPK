@@ -1,0 +1,177 @@
+---
+title: "Project"
+author: "123190132_123190160 / IF-C"
+date: "11/17/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r global}
+library(tidyverse)
+library(tidytext)
+library(textclean)
+library(syuzhet)
+library(wordcloud)
+library(shiny)
+```
+
+##dataset
+```{r}
+data <- read.csv("universal_studio_branches.csv") ##Import data
+data <- data[sample(nrow(data), 500), ] ##Mengambil data sebanyak 500 secara random
+
+##Mengambil review text dan branch dari data
+data <- data %>%
+        select(review_text, branch)
+
+##Mengambil review dari data
+review <- data$review_text
+
+##Membersihkan data
+review <- review %>%
+  str_to_lower() %>% ##Mengubah menjadi huruf kecil semua
+  replace_contraction() %>% ##mengembalikan kata yang disingkat
+  replace_word_elongation() %>% ##Mengembalikan kata yang diperpanjang
+  replace_non_ascii() %>% ##Mengganti kata bukan ascii
+  str_replace("â€™","") %>% ##Menghilangkan tanda petik
+  strip() ##Menghapus yang bukan merupakan kata
+
+data <- mutate(data, review_text = review) ##Memasukan review ke dataset dengan nama review_text
+
+```
+
+
+##Barplot
+```{r}
+sentimen <- function(x){ ##Function untuk Barplot
+  get_nrc_sentiment(x) ##Mendefinisikan emosi dari text 
+  }
+```
+
+
+##wordcloud
+```{r}
+words <- function(y){ ##Function untuk Wordcloud
+  enframe(y, value = "word", name = NULL) %>% ##mengubah vector menjadi data frame
+  unnest_tokens(word, word) %>% ##membuat setiap kata menjadi sebuah data sendiri
+  count(word, sort = T) %>% ##Mengurutkan kata dimulai dari jumlah kata terbanyak
+  anti_join(stop_words) ##Menghilankan stop words
+  }
+
+```
+
+
+##Shiny
+```{r}
+option_branch <- unique(data[["branch"]])
+
+ui <- fluidPage(
+  title = "Review",
+  headerPanel("Review Universal Studios"),
+  sidebarLayout(
+    sidebarPanel(
+      conditionalPanel(condition = "input.tabselected==1",
+                       selectInput(inputId = "BranchData",
+                       label = "Branch Universal Studios",
+                       choices = option_branch,
+                       multiple = FALSE,
+                       selected = option_branch[[1]])),
+      
+      conditionalPanel(condition = "input.tabselected==2",
+                       selectInput(inputId = "BranchBarplot",
+                       label = "Branch Universal Studios",
+                       choices = option_branch,
+                       multiple = FALSE,
+                       selected = option_branch[[1]])),
+      
+      conditionalPanel(condition = "input.tabselected==3",
+                       selectInput(inputId = "BranchWordcloud",
+                       label = "Branch Universal Studios",
+                       choices = option_branch,
+                       multiple = FALSE,
+                       selected = option_branch[[1]]),
+                       hr(),
+                       sliderInput("max",
+                       "Maximum Number of Words:",
+                       min = 1,  max = 300,  value = 100))
+),
+  
+
+  
+  mainPanel(
+    tabsetPanel(
+      type = "tabs",id="tabselected",selected = 1,
+      tabPanel("Data", DT::dataTableOutput("data"), value = 1),
+      tabPanel("Barplot",plotOutput("barplot"), value = 2),
+      tabPanel("Wordcloud",plotOutput("wordcloud"), value = 3)
+   )
+  )
+)
+)
+
+
+
+server <- function(input, output, session) {
+  
+##Data 
+  dataData <- reactive({
+  data %>% 
+    filter(branch %in% input$BranchData)
+})
+
+  output$data = DT::renderDataTable({  #Menampilkan data
+    DT::datatable(dataData(), options = list(lengthChange = FALSE))
+  })
+
+  
+  
+##Barplot
+  dataBarplot <- reactive({
+  data %>% 
+    filter(branch %in% input$BranchBarplot) %>%
+      .$review_text %>%
+      sentimen()
+  })
+  
+  output$barplot <- renderPlot({ #Menampilkan barplot
+      v <- dataBarplot()
+      barplot(colSums(v),cex.names = .7,
+        col = rainbow(10),
+        main = "sentiment scores"
+        )
+    })
+  
+  
+  
+##Wordcloud
+  dataWordcloud <- reactive({
+  data %>% 
+    filter(branch %in% input$BranchWordcloud) %>%
+      .$review_text %>%
+      words()
+  })  
+  
+  
+ output$wordcloud <- renderPlot(
+    {
+      z <- dataWordcloud()
+      z %>%
+        with(
+        wordcloud(
+          words = word,
+          freq = n,
+          max.words = input$max,
+          random.order = FALSE,
+          colors = brewer.pal(name = "Dark2", 8)
+        )
+      )
+    }
+  )
+  
+}
+
+shinyApp(ui = ui, server = server, options = list(height = "500px"))
+```
